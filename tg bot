@@ -1,0 +1,413 @@
+from aiogram import Bot, types
+from aiogram.dispatcher import Dispatcher
+from aiogram.utils import executor
+import pickle
+from aiogram.types import ReplyKeyboardRemove, \
+    ReplyKeyboardMarkup, KeyboardButton, \
+    InlineKeyboardMarkup, InlineKeyboardButton
+import os.path
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+import re
+
+whitelst = ["tir3ddd"]
+
+# If modifying these scopes, delete the file token.json.
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+
+# The ID of a sample document.
+SPREADSHEET_ID = '1kRGorVqzeMXUKQkm8IZXhLZ7dy8efFJScehFp8Gc5to'
+SPREADSHEET_ID_WL = '1-np6HnsPWyzD51FDFw7HTM0RcyfduJBUuyGNvjFs22U'
+
+creds = None
+if os.path.exists('token.pickle'):
+    with open('token.pickle', 'rb') as token:
+        creds = pickle.load(token)
+
+if not creds or not creds.valid:
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+    else:
+        print('flow')
+        flow = InstalledAppFlow.from_client_secrets_file(
+            'credentials.json', SCOPES)
+        creds = flow.run_local_server(port=0)
+    with open('token.pickle', 'wb') as token:
+        pickle.dump(creds, token)
+service = build('sheets', 'v4', credentials=creds)
+
+
+def update_values(range_name, values, spr_id):
+    spreadsheet_id = spr_id
+    value_input_option = "USER_ENTERED"
+    with open('token.pickle', 'wb') as token:
+        pickle.dump(creds, token)
+    # pylint: disable=maybe-no-member
+    try:
+        body = {
+            'values': values
+        }
+
+        print(values)
+
+        print(body)
+        result = service.spreadsheets().values().update(
+            spreadsheetId=spreadsheet_id, range=range_name,
+            valueInputOption=value_input_option, body=body).execute()
+        print(f"{result.get('updatedCells')} cells updated.")
+        return result
+    except HttpError as error:
+        print(f"An error occurred: {error}")
+        return error
+
+
+def updateStatus(username, userid, text, cellLetter):
+    """Shows basic usage of the Docs API.
+    Prints the title of a sample document.
+    """
+    with open('token.pickle', 'wb') as token:
+        pickle.dump(creds, token)
+
+    try:
+        length = len(getValues(creds, service, "A1:A10000000", SPREADSHEET_ID))
+        table = []
+        for i in range(length, 1, -1):
+            r = "A" + str(i) + ":Q" + str(i)
+            content = getValues(creds, service, r, SPREADSHEET_ID)
+            if username in content[0][2]:
+                table.append(content[0])
+                r = cellLetter + str(i) + ":" + cellLetter + str(i)
+                update_values(r, [
+                      [text]
+                  ], SPREADSHEET_ID)
+                return 1
+        return 0
+    except HttpError as err:
+        print(err)
+
+def checkTasks(status):
+    """Shows basic usage of the Docs API.
+    Prints the title of a sample document.
+    """
+    with open('token.pickle', 'wb') as token:
+        pickle.dump(creds, token)
+    try:
+        length = len(getValues(creds, service, "A1:A10000000", SPREADSHEET_ID))
+        tasks = []
+        for i in range(length, 1, -1):
+                r = "A" + str(i) + ":Q" + str(i)
+                content = getValues(creds, service, r, SPREADSHEET_ID)
+                if len(content[0]) > 16:
+                    if (status in content[0]):
+                        tasks.append(content[0])
+        return tasks
+    except HttpError as err:
+        print(err)
+
+def getValues(creds, service, range, spr_id):
+    spreadsheet = service.spreadsheets().get(spreadsheetId=spr_id).execute()
+    ranges = [range]  #
+    results = service.spreadsheets().values().batchGet(spreadsheetId=spr_id,
+                                                       ranges=ranges,
+                                                       valueRenderOption='FORMATTED_VALUE',
+                                                       dateTimeRenderOption='FORMATTED_STRING').execute()
+    sheet_values = results['valueRanges'][0]['values']
+    return sheet_values
+
+def formatValue(value):
+    result = re.findall(r'(?<=e/).*', value)
+    if result == []:
+        result = re.findall(r'(?<=@).*', value)
+        if result == []:
+            result = [value]
+    return result
+
+def listToLower(itemList):
+    if itemList == []:
+        return []
+    else:
+        i = 0
+        for item in itemList:
+            itemList[i] = formatValue(item[0][0].lower())
+            i += 1
+        return itemList
+
+def checkWhitelist(username):
+    with open('token.pickle', 'wb') as token:
+        pickle.dump(creds, token)
+    try:
+        length = len(getValues(creds, service, "A1:A10000000", SPREADSHEET_ID_WL))
+        whitelst = []
+        for i in range(length, 1, -1):
+                r = "A" + str(i) + ":A" + str(i)
+                content = getValues(creds, service, r, SPREADSHEET_ID_WL)
+                if content not in whitelst:
+                    whitelst.append(content)
+        #print(username.lower, listToLower(whitelst))
+        for nickname in listToLower(whitelst):
+            if username.lower() == nickname[0]:
+                return True
+        return False
+    except HttpError as err:
+        print(err)
+
+
+bot = Bot(token="5713198380:AAE-xbBIlE_N8c6ptwj8mZSfDcfxPFx1J-k")
+dp = Dispatcher(bot)
+
+hello_signal = False
+
+kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+buttons = ["Я студент.", "Я преподаватель."]
+kb.add(*buttons)
+
+kb2 = ReplyKeyboardMarkup(resize_keyboard=True)
+buttons = ["Форма заполнена.", "Назад."]
+kb2.add(*buttons)
+
+kb3 = ReplyKeyboardMarkup(resize_keyboard=True)
+buttons = ["Проверить заявки.", "Отправить задания."]
+kb3.add(*buttons)
+buttons = ["Проверить задания.", "Отправить обратную связь."]
+kb3.add(*buttons)
+buttons = ["Инструкция по работе с ботом.", "Назад."]
+kb3.add(*buttons)
+
+kb5 = ReplyKeyboardMarkup(resize_keyboard=True)
+buttons = ["Посмотреть\nсписок студентов.", "Посмотреть список\nпреподавателей."]
+kb5.add(*buttons)
+buttons = ["Посмотреть\nсписок команд.", "Вернуться назад."]
+kb5.add(*buttons)
+
+
+kb4 = ReplyKeyboardMarkup(resize_keyboard=True)
+button_sendtask = KeyboardButton('Прикрепить выполненное задание.')
+kb4.add(button_sendtask)
+
+@dp.message_handler(commands=['start'])
+async def process_start_command(message: types.Message):
+    await bot.send_message(message.from_user.id,
+                           "Привет! Я - бот UDV Summer School.")
+    await bot.send_message(message.from_user.id,
+                           "Чтобы пройти дальше, необходимо выбрать свою роль.",
+                           reply_markup=kb)
+
+
+@dp.message_handler(text=['Я студент.'])
+async def process_student_command(message: types.Message):
+    await message.reply(
+        "Рад знакомству! Чтобы определить твой дальнейший путь в нашей школе, мне нужно узнать о тебе немного больше. В этом поможет наша гугл форма: https://forms.gle/uRyMEvomZbAizFvq9")
+    await message.reply(
+        "Заполни её и нажми на кнопку ниже. С нетерпением буду ждать твоего ответа!", reply_markup=kb2)
+
+
+@dp.message_handler(text=['Форма заполнена.'])
+async def process_done_command(message: types.Message):
+    status = updateStatus(message.from_user.username, message.from_user.id, "Тестовое задание ещё готовится!", "Q")
+    status = updateStatus(message.from_user.username, message.from_user.id, message.from_user.id, "M")
+    if message.from_user.username == None:
+        await message.reply(
+            f'Я не могу найти твой ник. Проверишь форму и отправишь её ещё раз? Нажми на кнопку снова, когда закончишь.')
+    elif status != 0:
+        await message.reply(
+            f'Спасибо за твою заявку! Скоро я отправлю тебе тестовое задание.')
+        await bot.send_message(message.from_user.id,
+                           "Когда ты захочешь сдать своё решение, нажми на кнопку \"Прикрепить выполненное задание\".",
+                           reply_markup=kb4)
+    else:
+        await message.reply(
+            f'Я не могу найти твою заявку. Пожалуйста, заполни форму ещё раз: https://forms.gle/uRyMEvomZbAizFvq9\n\n'
+            f'Будь внимательней! Убедись, что во всех полях нет ошибок, в том числе и в нике: {message.from_user.username}')
+
+
+@dp.message_handler(text=['Я преподаватель.'])
+async def process_teacher_command(message: types.Message):
+    if checkWhitelist(message.from_user.username):
+        await message.reply(
+            "Здесь Вы можете отправлять тестовые задания студентам, а также проверить их работы.\nДля получения более подробой информации, Вы можете просмотреть инструкцию по работе с ботом.",
+            reply_markup=kb3)
+    else:
+        await message.reply("Похоже, Вашего ника нет в списке преподавателей.")
+
+
+
+@dp.message_handler(text=['Проверить заявки.'])
+async def process_checkrequests_command(message: types.Message):
+    if checkWhitelist(message.from_user.username):
+        await bot.send_message(message.from_user.id,
+                               "Проверяю заявки...")
+        tasks = checkTasks("В ожидании т/з")
+        students = "Список студентов, которым не было отправлено тестовое задание:\n"
+        if tasks != []:
+            for task in tasks:
+                if (task[2] != "") and ("В ожидании т/з" in task) and (task[13] == ""):
+                    students = students + "ФИО: " + task[3] + " | Телеграм: @" + formatValue(task[2])[0] + "\n"
+            if students == "Список студентов, которым не было отправлено тестовое задание:\n":
+                await bot.send_message(message.from_user.id,
+                                       "Все тестовые задания были отправлены!")
+            else:
+                await bot.send_message(message.from_user.id, students)
+        else:
+            await bot.send_message(message.from_user.id,
+                                   "Все тестовые задания были отправлены!")
+
+@dp.message_handler(text=['Отправить задания.'])
+async def process_sendrequests_command(message: types.Message):
+    if checkWhitelist(message.from_user.username):
+        await bot.send_message(message.from_user.id,
+                               "Отправляю задания...")
+        tasks = checkTasks("В ожидании т/з")
+        students = "Список студентов, которым было отправлено тестовое задание:\n"
+        print(tasks)
+        if tasks != []:
+            for task in tasks:
+                if (task[2] != "") and ("В ожидании т/з" in task):
+                    if (task[13] != ""):
+                        students = students + "ФИО: " + task[3] + " | Телеграм: @" + formatValue(task[2])[0] + "\n"
+                        message_text = "Заявка рассмотрена! Ваше тестовое задание:\n" + task[13]
+                        status = updateStatus(formatValue(task[2])[0], task[12], "В процессе выполенения", "Q")
+                        await bot.send_message(task[12], message_text)
+
+                    else:
+                        message_text = "Заполните все поля оставшихся заданий, чтобы отправить их:\nФИО: " + task[3] + " | Телеграм: @" + formatValue(task[2])[0]
+                        await bot.send_message(message.from_user.id, message_text)
+            if students != "Список студентов, которым было отправлено тестовое задание:\n":
+                await bot.send_message(message.from_user.id, students)
+        else:
+            await bot.send_message(message.from_user.id,
+                                   "Все тестовые задания были отправлены!")
+
+@dp.message_handler(text=['Проверить задания.'])
+async def process_checkrequests_command(message: types.Message):
+    if checkWhitelist(message.from_user.username):
+        await bot.send_message(message.from_user.id,
+                               "Проверяем заявки...")
+        tasks = checkTasks("Ждёт проверки задания")
+        taskList = []
+        students = "Список студентов, которые отправлили решения тестовых заданий:"
+        if tasks != []:
+            for task in tasks:
+                if (task[2] != "") and ("Ждёт проверки задания" in task) and (task[13] != ""):
+                    students = "ФИО: " + task[3] + " | Телеграм: @" + formatValue(task[2])[0] + "\nЗадание: " + task[13] + "\n\nВыполненное задание: " + task[14]
+                    taskList.append(students)
+            if taskList != []:
+                await bot.send_message(message.from_user.id,
+                                       "Список студентов, которые отправлили решения тестовых заданий:")
+                for task in taskList:
+                    await bot.send_message(message.from_user.id, task)
+            if students == "Список студентов, которые отправлили решения тестового задания:":
+                await bot.send_message(message.from_user.id,
+                                        "Непроверенных решений нет!")
+        else:
+            await bot.send_message(message.from_user.id,
+                                   "Непроверенных решений нет!")
+
+@dp.message_handler(text=['Отправить обратную связь.'])
+async def process_sendrequests_command(message: types.Message):
+    if checkWhitelist(message.from_user.username):
+        await bot.send_message(message.from_user.id,
+                               "Отправляем заявки...")
+        tasks = checkTasks("Ждёт проверки задания")
+        students = "Список студентов, которым была дана обратная связь по заданию:\n"
+        if tasks != []:
+            for task in tasks:
+                if (task[2] != "") and ("Ждёт проверки задания" in task):
+                    if (task[15] != ""):
+                        students = students + "ФИО: " + task[3] + " | Телеграм: @" + formatValue(task[2])[0] + "\n"
+                        message_text = "Готов ответ на задание:\n" + task[15]
+                        status = updateStatus(formatValue(task[2])[0], task[12], "Завершено", "Q")
+                        await bot.send_message(task[12], message_text)
+                    else:
+                        message_text = "Заполните все поля обратной связи, чтобы отправить её:\nФИО: " + task[3] + " | Телеграм: @" + formatValue(task[2])[0]
+                        await bot.send_message(message.from_user.id, message_text, reply_markup=kb4)
+            await bot.send_message(message.from_user.id, students)
+        else:
+            await bot.send_message(message.from_user.id,
+                                   "Обратная связь была отправлена всем!")
+
+@dp.message_handler(text=['Посмотреть\nсписок студентов.'])
+async def process_responses_command(message: types.Message):
+    if checkWhitelist(message.from_user.username):
+        await bot.send_message(message.from_user.id,
+                               "Создание тестовых заданий и отправка обратной связи студентам осуществляется с помощью данной формы: https://docs.google.com/spreadsheets/d/1kRGorVqzeMXUKQkm8IZXhLZ7dy8efFJScehFp8Gc5to/edit#gid=2025844674")
+
+@dp.message_handler(text=['Посмотреть список\nпреподавателей.'])
+async def process_whitelist_command(message: types.Message):
+    if checkWhitelist(message.from_user.username):
+        await bot.send_message(message.from_user.id,
+                               "Редактирование списка пользователей, имеющих доступ к функциям преподавателя, осуществляется с помощью данной формы: https://docs.google.com/spreadsheets/d/1-np6HnsPWyzD51FDFw7HTM0RcyfduJBUuyGNvjFs22U/edit?usp=drive_web&ouid=109075113807985620554")
+
+@dp.message_handler(text=['Посмотреть\nсписок команд.'])
+async def process_whitelist_command(message: types.Message):
+    if checkWhitelist(message.from_user.username):
+        await bot.send_message(message.from_user.id,
+                               "Список доступных команд:\n1) Проверить заявки - проверяет наличие студентов, ожидающих получение тестовых заданий.\n2) Отправить задания - рассылает составленные задания студентам. Если остались студенты, для которых не было составлено задание, бот также уведомит и о них.\n3) Проверить задания - проверяет текущий статус выполнения заданий студентами.\n4) Отправить обратную связь - отправляет обратную связь по текущему заданию.\n\nЗадание и обратную связь нужно прописывать в специальной форме. Для просмотра списка студентов и списка преподавателей воспользуйтесь соответствующими кнопками ниже.")
+
+@dp.message_handler(text=['Вернуться назад.'])
+async def process_whitelist_command(message: types.Message):
+    if checkWhitelist(message.from_user.username):
+        await bot.send_message(message.from_user.id,
+                               "Вы вернулись назад.", reply_markup=kb3)
+
+@dp.message_handler(text=['Назад.'])
+async def process_start_command(message: types.Message):
+    await bot.send_message(message.from_user.id,
+                           "Возвращаю к выбору роли...")
+    await bot.send_message(message.from_user.id,
+                           "Чтобы пройти дальше, необходимо выбрать свою роль.",
+                           reply_markup=kb)
+
+@dp.message_handler(text=['Инструкция по работе с ботом.'])
+async def process_help_command(message: types.Message):
+    if checkWhitelist(message.from_user.username):
+        await bot.send_message(message.from_user.id,
+                               "Выберите, что хотите узнать, и нажмите соответствующую кнопку.", reply_markup=kb5)
+
+
+@dp.message_handler(text=['Прикрепить выполненное задание.'])
+async def process_sendtask_command(message: types.Message):
+        signal = False
+        print(signal)
+        tasks = checkTasks("В процессе выполенения")
+        process = checkTasks("Ждёт проверки задания")
+        finished = checkTasks("Завершено")
+        print(signal)
+
+        for task in tasks:
+            if (task[2] != "") and (task[13] != "") and (int(task[12]) == message.from_user.id):
+                signal = True
+                break
+
+        for pro in process:
+            if (pro[2] != "") and (pro[13] != "") and (int(pro[12]) == message.from_user.id):
+                signal = True
+                break
+
+        for finish in finished:
+            if (finish[2] != "") and (finish[13] != "") and (int(finish[12]) == message.from_user.id):
+                signal = 0
+                break
+        if signal == 0:
+            await bot.send_message(message.from_user.id, "Обратная связь по твоему заданию получена!", reply_markup=kb4)
+        elif signal == False:
+            await bot.send_message(message.from_user.id, "Задание ещё не готово. Подожди, пока оно не будет отправлено, и после получения снова нажми на кнопку.", reply_markup=kb4)
+
+        elif signal == True:
+            await bot.send_message(message.from_user.id,
+                                   "Отправь сообщение с ссылкой, откуда можно скачать твоё решение. Для этого ты можешь воспользоваться файлообменниками google drive, yandex disk или любыми другими.\nТак наши преподаватели смогут проверить твоё задание.")
+            @dp.message_handler()
+            async def process_sendtask_command(message: types.Message):
+                status = updateStatus(message.from_user.username, message.from_user.id, "Ждёт проверки задания", "Q")
+                if status != 0:
+                    if "/" not in message.text:
+                        status = updateStatus(message.from_user.username, message.from_user.id, message.text, "O")
+                        print(message.text)
+                        await message.reply(
+                            "Твоё задание успешно отправлено! Если в ссылке была ошибка, просто отправь новую, и наши преподаватели получат её.")
+
+
+if __name__ == '__main__':
+    executor.start_polling(dp)
